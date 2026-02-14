@@ -1,0 +1,1098 @@
+<!DOCTYPE html>
+<html lang="ko">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>비용 정산 증빙 자동화</title>
+    <!-- Pretendard Font -->
+    <link rel="stylesheet" as="style" crossorigin
+        href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+    <!-- Tabulator -->
+    <link href="https://unpkg.com/tabulator-tables@5.5.0/dist/css/tabulator_modern.min.css" rel="stylesheet">
+    <script type="text/javascript" src="https://unpkg.com/tabulator-tables@5.5.0/dist/js/tabulator.min.js"></script>
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <!-- JSZip for Bulk Download -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <style>
+        :root {
+            --primary: #3182f6;
+            --primary-hover: #1b64da;
+            --bg-body: #f2f4f6;
+            --bg-panel: #ffffff;
+            --border: #e5e8eb;
+            --text-main: #191f28;
+            --text-sub: #8b95a1;
+            --radius-L: 24px;
+            --radius-M: 16px;
+            --radius-S: 12px;
+            --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.06);
+            --shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.04);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-body);
+            color: var(--text-main);
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Layout */
+        .app-container {
+            width: 100%;
+            height: 100%;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            background: var(--bg-panel);
+            /* Full screen container */
+        }
+
+        /* Right Panel: Visualizer */
+        .visualizer-panel {
+            background-color: #1a1a1a;
+            /* Keep dark for contrast */
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            padding: 40px;
+        }
+
+        .visualizer-placeholder {
+            color: #666;
+            font-size: 18px;
+            text-align: center;
+            font-weight: 500;
+        }
+
+        .visualizer-image-container {
+            position: relative;
+            max-width: 95%;
+            max-height: 85%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .visualizer-image {
+            width: auto;
+            height: auto;
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            border-radius: var(--radius-M);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            display: none;
+            /* Ensure it does not overlap with absolute elements */
+            margin-bottom: 20px;
+        }
+
+        /* Segmented Control for Dual Images */
+        .segmented-control {
+            display: none;
+            background: rgba(255, 255, 255, 0.1);
+            padding: 4px;
+            border-radius: 100px;
+            margin-bottom: 20px;
+            backdrop-filter: blur(10px);
+        }
+
+        .segmented-option {
+            padding: 8px 20px;
+            border-radius: 100px;
+            color: #aaa;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+
+        .segmented-option.active {
+            background: white;
+            color: #1a1a1a;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .visualizer-loading {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            gap: 24px;
+            color: white;
+            width: 80%;
+            max-width: 400px;
+        }
+
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(255, 255, 255, 0.1);
+            border-top: 4px solid var(--primary);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* Progress Bar */
+        .progress-wrapper {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            height: 8px;
+            overflow: hidden;
+            margin-top: 10px;
+        }
+
+        .progress-bar {
+            height: 100%;
+            background: var(--primary);
+            width: 0%;
+            transition: width 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        }
+
+        .progress-text {
+            font-size: 14px;
+            color: #aaa;
+            margin-top: 6px;
+        }
+
+        /* Left Panel: Controller */
+        .control-panel {
+            background: var(--bg-body);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            padding: 32px;
+            gap: 20px;
+            overflow-y: auto;
+        }
+
+        .header h1 {
+            font-size: 24px;
+            font-weight: 800;
+            color: var(--text-main);
+            margin-bottom: 6px;
+            letter-spacing: -0.5px;
+        }
+
+        .header p {
+            color: var(--text-sub);
+            font-size: 15px;
+            font-weight: 500;
+        }
+
+        .settings-bar {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: var(--bg-panel);
+            padding: 12px 16px;
+            border-radius: var(--radius-M);
+            font-size: 13px;
+            color: var(--text-sub);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .settings-bar input {
+            width: 60px;
+            padding: 6px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            text-align: center;
+            font-weight: 600;
+            color: var(--text-main);
+            font-size: 14px;
+            background: #f9fafb;
+        }
+
+        .settings-bar input:focus {
+            outline: none;
+            border-color: var(--primary);
+            background: white;
+        }
+
+        .toolbar {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .btn {
+            padding: 10px 16px;
+            border-radius: var(--radius-S);
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            border: none;
+            background: white;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            background: white;
+        }
+
+        .btn:active {
+            transform: scale(0.98);
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 4px 16px rgba(49, 130, 246, 0.3);
+            font-size: 15px;
+            padding: 14px 24px;
+            border-radius: var(--radius-M);
+            justify-content: center;
+            margin-top: auto;
+            /* Push to bottom if needed, or just layout */
+        }
+
+        .btn-primary:hover {
+            background: var(--primary-hover);
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(49, 130, 246, 0.4);
+        }
+
+        .btn-primary:disabled {
+            background: var(--text-sub);
+            cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
+            opacity: 0.7;
+        }
+
+        .btn-secondary {
+            background: #e5e8eb;
+            color: var(--text-main);
+            box-shadow: none;
+        }
+
+        .btn-secondary:hover {
+            background: #d1d6db;
+        }
+
+        /* Visualizer Header to show selected info */
+        .visualizer-header {
+            width: 100%;
+            padding: 20px 30px;
+            background: linear-gradient(180deg, rgba(0, 0, 0, 0.6) 0%, rgba(0, 0, 0, 0) 100%);
+            color: white;
+            font-size: 18px;
+            font-weight: 700;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 10;
+        }
+
+        .visualizer-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            height: 100%;
+            padding-top: 60px;
+            padding-bottom: 80px;
+            overflow: hidden;
+        }
+
+        .btn-download {
+            position: absolute;
+            bottom: 30px;
+            background: var(--primary);
+            color: white;
+            padding: 14px 30px;
+            border-radius: 100px;
+            text-decoration: none;
+            font-weight: 600;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+            display: none;
+            /* Hidden by default */
+            transition: transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1);
+            align-items: center;
+            gap: 8px;
+        }
+
+        .btn-download:hover {
+            transform: translateY(-4px);
+            background: var(--primary-hover);
+            box-shadow: 0 14px 40px rgba(49, 130, 246, 0.3);
+        }
+
+        .btn-tiny {
+            padding: 0 12px;
+            height: 29px;
+            display: inline-flex;
+            align-items: center;
+            border-radius: 8px;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            border: none;
+            background: var(--primary);
+            color: white;
+            transition: 0.2s;
+            white-space: nowrap;
+        }
+
+        .btn-tiny:hover {
+            background: var(--primary-hover);
+        }
+
+        /* Tabulator Enhancements (Clean Excel Style) */
+        .tabulator {
+            border: 1px solid #ccc !important;
+            background: white !important;
+            overflow: hidden;
+            font-family: 'Inter', sans-serif;
+            font-size: 13px;
+        }
+
+        .tabulator-header {
+            background-color: #f8f9fa !important;
+            border-bottom: 2px solid #cbd5e1 !important;
+            color: #333;
+            font-weight: 700;
+        }
+
+        .tabulator-header .tabulator-col {
+            background-color: #f8f9fa !important;
+            border-right: 1px solid #cbd5e1 !important;
+        }
+
+        .tabulator-header .tabulator-col-content {
+            padding: 8px 10px !important;
+            text-align: center !important;
+        }
+
+        /* Ensure title is centered */
+        .tabulator-header .tabulator-col .tabulator-col-title-holder {
+            text-align: center !important;
+        }
+
+        .tabulator-row {
+            background: white !important;
+            border-bottom: 1px solid #cbd5e1 !important;
+        }
+
+        .tabulator-row:hover {
+            background-color: #f1f3f5 !important;
+        }
+
+        .tabulator-cell {
+            padding: 8px !important;
+            border-right: 1px solid #cbd5e1 !important;
+            color: #333;
+            /* Vertical Center */
+            display: inline-flex !important;
+            align-items: center;
+            justify-content: center;
+            height: 48px !important;
+            /* Fixed Row Height */
+        }
+
+        /* Specific Alignments */
+        .tabulator-cell[tabulator-field="start"],
+        .tabulator-cell[tabulator-field="event"],
+        .tabulator-cell[tabulator-field="end"],
+        .tabulator-cell[tabulator-field="name"],
+        .tabulator-cell[tabulator-field="affiliation"] {
+            justify-content: flex-start !important;
+            /* Left align text */
+            padding-left: 12px !important;
+        }
+
+        .tabulator-row .tabulator-cell:last-child {
+            border-right: none !important;
+        }
+
+        .tabulator-row.tabulator-selected {
+            background-color: #3182f622 !important;
+            /* Tinted primary color */
+            outline: 2px solid var(--primary) !important;
+            outline-offset: -2px;
+            z-index: 10;
+        }
+
+        .tabulator-row.tabulator-selected .tabulator-cell {
+            background-color: transparent !important;
+            /* Allow row bg to show through */
+            border-bottom: 2px solid var(--primary) !important;
+        }
+
+        /* Column Specifics - Read Only */
+        .tabulator-cell[tabulator-field="status"],
+        .tabulator-cell[tabulator-field="resultText"] {
+            background-color: #f8f9fa !important;
+            color: #666;
+            cursor: default !important;
+        }
+
+        /* Column Specifics - Editable */
+        .tabulator-cell[tabulator-field="no"],
+        .tabulator-cell[tabulator-field="name"],
+        .tabulator-cell[tabulator-field="affiliation"],
+        .tabulator-cell[tabulator-field="start"],
+        .tabulator-cell[tabulator-field="event"],
+        .tabulator-cell[tabulator-field="end"] {
+            background-color: #fff !important;
+            cursor: text !important;
+            font-weight: 500;
+        }
+
+        /* Success (Locked) Row Styling */
+        .tabulator-row.row-success .tabulator-cell {
+            background-color: #f1f3f5 !important;
+            color: #888 !important;
+            cursor: not-allowed !important;
+        }
+
+        .tabulator-row.row-success .tabulator-cell[tabulator-field="status"] {
+            background-color: #f1f3f5 !important;
+        }
+
+        .tabulator-cell[tabulator-field="no"] {
+            font-weight: 600;
+            justify-content: center !important;
+        }
+
+        .tabulator-cell[tabulator-field="resultText"] {
+            justify-content: flex-start !important;
+            font-size: 12px;
+        }
+
+        /* Header Icons for Editable Columns */
+        .tabulator-col[tabulator-field="no"] .tabulator-col-title::after,
+        .tabulator-col[tabulator-field="name"] .tabulator-col-title::after,
+        .tabulator-col[tabulator-field="affiliation"] .tabulator-col-title::after,
+        .tabulator-col[tabulator-field="start"] .tabulator-col-title::after,
+        .tabulator-col[tabulator-field="event"] .tabulator-col-title::after,
+        .tabulator-col[tabulator-field="end"] .tabulator-col-title::after {
+            content: ' ✎';
+            font-size: 10px;
+            color: var(--primary);
+            opacity: 0.7;
+            margin-left: 4px;
+        }
+
+        /* Checkbox Style */
+        .tabulator-row .tabulator-cell .tabulator-row-handle-box {
+            width: 14px;
+            height: 14px;
+            accent-color: #3182f6;
+            border: 1px solid #ccc;
+            cursor: pointer;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Left: Controller -->
+        <div class="control-panel">
+            <div class="header">
+                <h1>비용 정산 증빙 자동화</h1>
+                <p style="font-size: 13px; color: var(--text-sub); margin-top: 4px;">데이터 편집 및 일괄 캡처</p>
+            </div>
+
+            <div class="settings-bar">
+                <i class="ph ph-monitor"></i>
+                <span>화면 크기:</span>
+                <input type="number" id="vpWidth" value="900" title="가로">
+                <span>x</span>
+                <input type="number" id="vpHeight" value="500" title="세로">
+
+                <div style="border-left: 1px solid var(--border); height: 16px; margin: 0 10px;"></div>
+
+                <i class="ph ph-map-pin"></i>
+                <span>단체 행사지:</span>
+                <input type="text" id="globalEventLoc" placeholder="장소 입력" style="width: 120px;">
+                <button class="btn-tiny" onclick="applyGlobalEventLocation()">일괄 적용</button>
+
+                <div style="border-left: 1px solid var(--border); height: 16px; margin: 0 10px;"></div>
+
+                <i class="ph ph-cpu"></i>
+                <span>동시 처리:</span>
+                <input type="number" id="concurrencyLimit" value="3" min="1" max="10" style="width: 50px;"
+                    title="동시 처리 개수">
+
+                <span style="margin-left:auto; font-size: 11px; color: #888;">자동 저장됨</span>
+            </div>
+
+            <div class="toolbar">
+                <button class="btn" onclick="downloadSample()"><i class="ph ph-download-simple"></i>샘플 양식</button>
+                <button class="btn" onclick="document.getElementById('csvFile').click()"><i
+                        class="ph ph-upload-simple"></i>CSV 불러오기</button>
+                <button class="btn" onclick="downloadSelectedCSV()"><i class="ph ph-file-csv"></i>추출하기</button>
+                <button class="btn" onclick="downloadAllImages()"><i class="ph ph-images"></i>이미지 일괄 저장</button>
+                <button class="btn" onclick="addRow()"><i class="ph ph-plus"></i>추가</button>
+                <button class="btn" onclick="clearTable()"><i class="ph ph-trash"></i>비우기</button>
+                <input type="file" id="csvFile" accept=".csv" style="display: none;" onchange="loadCSV(this)">
+            </div>
+
+            <div id="data-grid"></div>
+
+            <button class="btn btn-primary" id="btnRun" onclick="runBatch()">
+                <i class="ph ph-play-circle"></i> 실행 시작
+            </button>
+
+            <!-- <div class="log-area" id="log"></div> -->
+            <div id="log" style="display:none;"></div> <!-- Logic needs log div but UI is cleaner without it -->
+        </div>
+
+        <!-- Right: Visualizer -->
+        <div class="visualizer-panel" id="visualizer">
+            <!-- Header -->
+            <div class="visualizer-header" id="vis-header" style="display:none;">
+                <span id="vis-title">선택된 경로 없음</span>
+                <span id="vis-meta" style="font-size: 14px; opacity: 0.8; font-weight: 400;">-</span>
+            </div>
+
+            <div class="visualizer-content">
+                <div class="visualizer-placeholder" id="vis-placeholder">
+                    <i class="ph ph-image"
+                        style="font-size: 64px; margin-bottom: 24px; display: block; opacity: 0.3;"></i>
+                    리스트에서 항목을 선택하거나<br>실행하여 결과를 확인하세요
+                </div>
+
+                <div class="visualizer-loading" id="vis-loading">
+                    <div class="spinner"></div>
+                    <div>
+                        <p id="vis-loading-text" style="font-size: 18px; font-weight: 700; text-align: center;">처리 중...
+                        </p>
+                        <p class="progress-text" id="prog-text" style="text-align: center;">0 / 0</p>
+                    </div>
+                    <div class="progress-wrapper">
+                        <div class="progress-bar" id="prog-bar"></div>
+                    </div>
+                </div>
+
+                <div class="visualizer-image-container">
+                    <!-- Segmented Control for Dual Images -->
+                    <div class="segmented-control" id="seg-control">
+                        <div class="segmented-option active" onclick="switchImage('start')" id="seg-start">출발편</div>
+                        <div class="segmented-option" onclick="switchImage('end')" id="seg-end">귀가편</div>
+                    </div>
+
+                    <img src="" class="visualizer-image" id="vis-image">
+                </div>
+            </div>
+
+            <!-- Download Button -->
+            <a href="#" class="btn-download" id="vis-download" download>
+                <i class="ph ph-download"></i> 이미지 다운로드
+            </a>
+        </div>
+    </div>
+    <script>
+        // --- State & Config ---
+        let table;
+        const logDiv = document.getElementById('log');
+
+        // Current Visualizer State
+        let currentData = null;
+        let currentView = 'start'; // 'start' or 'end'
+
+        console.log('🚀 Application Logic Loaded');
+
+        // --- Tabulator Init ---
+        document.addEventListener('DOMContentLoaded', () => {
+            table = new Tabulator("#data-grid", {
+                data: [{ id: 1, no: 1, name: "홍길동", affiliation: "본사", start: "서울역", event: "판교", end: "강남역", status: "ready" }],
+                layout: "fitColumns",
+                height: "100%",
+                selectable: 1, // Allow only single row selection
+                selectableCheck: (row) => row.getData().status !== 'success', // Prevent success rows from being selected
+                // rowHeader: { headerSort: false, resizable: false, minWidth: 40, width: 40, rowHandle: true, formatter: "rowSelection", titleFormatter: "rowSelection", align: "center", headerAlign: "center" },
+                rowFormatter: function (row) {
+                    if (row.getData().status === 'success') {
+                        row.getElement().classList.add("row-success");
+                    } else {
+                        row.getElement().classList.remove("row-success");
+                    }
+                },
+                columns: [
+                    { title: "No", field: "no", width: 50, hozAlign: "center", editor: "input", editable: (cell) => cell.getRow().getData().status !== 'success' },
+                    { title: "이름", field: "name", editor: "input", width: 80, editable: (cell) => cell.getRow().getData().status !== 'success' },
+                    { title: "소속", field: "affiliation", editor: "input", width: 80, editable: (cell) => cell.getRow().getData().status !== 'success' },
+                    { title: "출발지", field: "start", editor: "input", editable: (cell) => cell.getRow().getData().status !== 'success' },
+                    { title: "행사지", field: "event", editor: "input", editable: (cell) => cell.getRow().getData().status !== 'success' },
+                    { title: "도착지", field: "end", editor: "input", editable: (cell) => cell.getRow().getData().status !== 'success' },
+                    { title: "상태", field: "status", width: 70, formatter: statusFormatter, hozAlign: "center" },
+                    { title: "결과", field: "resultText", width: 150 },
+                    {
+                        formatter: "buttonCross", width: 30, hozAlign: "center", cellClick: (e, cell) => {
+                            e.stopPropagation();
+                            cell.getRow().delete();
+                        }
+                    }
+                ],
+                // 3. Selection Changed Handler (Sync visualizer)
+                rowSelected: (row) => {
+                    // console.log('✅ Row Selection Changed:', row.getData());
+                    // showVisualizer(row.getData()); // Optional: Update visualizer on check? Usually on click is better.
+                }
+            });
+
+            // 4. Manual Event Binding - This is confirmed to work
+            table.on("rowClick", function (e, row) {
+                const data = row.getData();
+                console.log('%c🎯 Row Selected (Click)', 'color: #3182f6; font-size: 14px; font-weight: bold;', data);
+
+                const isRunning = data.status === 'running';
+                showVisualizer(data, isRunning);
+            });
+
+            addLog("시스템 준비 완료.");
+        });
+
+        function statusFormatter(cell) {
+            const val = cell.getValue();
+            if (val === 'running') return `<span style="color:#3182f6">⏳</span>`;
+            if (val === 'success') return `<span style="color:#2ecc71">✅</span>`;
+            if (val === 'error') return `<span style="color:#e74c3c">❌</span>`;
+            return `<span style="color:#ccc">-</span>`;
+        }
+
+        // --- Visualizer & Progress Logic ---
+        function updateProgress(current, total) {
+            const percentage = Math.round((current / total) * 100);
+            document.getElementById('prog-bar').style.width = `${percentage}%`;
+            document.getElementById('prog-text').innerText = `${current} / ${total} 완료 (${percentage}%)`;
+        }
+
+        // Switch Image Logic
+        function switchImage(type) {
+            if (!currentData || !currentData.images) return;
+
+            const targetUrl = currentData.images[type];
+            if (!targetUrl) return;
+
+            currentView = type;
+
+            // Update UI
+            document.getElementById('vis-image').src = targetUrl;
+            document.getElementById('vis-download').href = targetUrl;
+
+            // Toggle Active Class
+            document.getElementById('seg-start').classList.toggle('active', type === 'start');
+            document.getElementById('seg-end').classList.toggle('active', type === 'end');
+        }
+
+        function showVisualizer(data, isRunning = false) {
+            currentData = data;
+            const ph = document.getElementById('vis-placeholder');
+            const loading = document.getElementById('vis-loading');
+            const img = document.getElementById('vis-image');
+            const segControl = document.getElementById('seg-control');
+
+            // Elements
+            const header = document.getElementById('vis-header');
+            const title = document.getElementById('vis-title');
+            const meta = document.getElementById('vis-meta');
+            const downloadBtn = document.getElementById('vis-download');
+
+            console.log('Show Visualizer:', data, 'Running:', isRunning);
+
+            // Always show header if valid data exists
+            if (data && data.start && data.event) {
+                header.style.display = 'flex';
+                title.innerText = `${data.start} → ${data.event}`;
+                meta.innerText = isRunning ? '처리 중...' : (data.resultText || '대기 중');
+            } else {
+                header.style.display = 'none';
+            }
+
+            if (isRunning) {
+                // 1. Running State
+                ph.style.display = 'none';
+                loading.style.display = 'flex';
+                img.style.display = 'none';
+                downloadBtn.style.display = 'none';
+                segControl.style.display = 'none';
+
+                // Fallback for loading text
+                if (!document.getElementById('vis-loading-text').innerText) {
+                    document.getElementById('vis-loading-text').innerText = `${data.start} → ${data.event} 탐색 중...`;
+                }
+
+            } else if (data.imageUrl) {
+                // 2. Success State (Image Available)
+                ph.style.display = 'none';
+                loading.style.display = 'none';
+                img.style.display = 'block';
+                downloadBtn.style.display = 'flex';
+
+                // --- Segmented Control Logic ---
+                if (data.images && data.images.start && data.images.end) {
+                    segControl.style.display = 'flex';
+                    // Default to Start or Keep current view if valid
+                    if (!data.images[currentView]) currentView = 'start';
+                    switchImage(currentView);
+                } else {
+                    segControl.style.display = 'none';
+                    img.src = data.imageUrl; // Single image fallback
+                    downloadBtn.href = data.imageUrl;
+                    downloadBtn.download = `${data.no}_${data.name}_result.png`;
+                }
+
+            } else {
+                // 3. Idle / No Data (but selected)
+                loading.style.display = 'none';
+                img.style.display = 'none';
+                ph.style.display = 'block';
+                downloadBtn.style.display = 'none';
+                segControl.style.display = 'none';
+
+                if (data && data.start) {
+                    ph.innerHTML = `<i class="ph ph-cursor-click" style="font-size:48px; opacity:0.5; margin-bottom:16px;"></i><br>
+                                    '${data.start} → ${data.event}'<br>선택됨. 실행 버튼을 눌러주세요.`;
+                } else {
+                    ph.innerHTML = `<i class="ph ph-image"
+                        style="font-size: 64px; margin-bottom: 24px; display: block; opacity: 0.3;"></i>
+                    리스트에서 항목을 선택하거나<br>실행하여 결과를 확인하세요`;
+                }
+            }
+        }
+
+        // --- Actions ---
+        function addRow() { table.addRow({ status: "ready" }); }
+        function clearTable() { if (confirm('모든 데이터를 지우시겠습니까?')) table.clearData(); }
+
+        function addLog(msg) {
+            console.log(msg); // Log to console instead of UI
+        }
+
+        function downloadSample() { location.href = '/download-sample'; }
+
+        function applyGlobalEventLocation() {
+            const loc = document.getElementById('globalEventLoc').value;
+            if (!loc) return alert('행사지를 입력해주세요.');
+
+            const rows = table.getRows();
+            rows.forEach(row => {
+                row.update({ event: loc });
+            });
+            alert('모든 행의 행사지가 변경되었습니다.');
+        }
+
+        function downloadSelectedCSV() {
+            const allData = table.getData();
+            if (!allData || allData.length === 0) {
+                return alert('추출할 데이터가 없습니다.');
+            }
+
+            // Flattening logic for 2-leg routes
+            const flattened = [];
+            allData.forEach(d => {
+                // If the row has an 'end' (도착지), it's a 2-leg route: split into two lines
+                if (d.end && d.end.trim() !== "") {
+                    // Leg 1: Start -> Event
+                    flattened.push({
+                        no: d.no,
+                        name: d.name,
+                        affiliation: d.affiliation,
+                        start: d.start,
+                        event: d.event,
+                        end: "", // Clear end for first leg row
+                        status: d.status,
+                        resultText: d.start_distance ? `출발: ${d.start_distance}` : (d.status === 'success' ? '출발 완료' : '')
+                    });
+                    // Leg 2: Event -> End
+                    flattened.push({
+                        no: d.no,
+                        name: d.name,
+                        affiliation: d.affiliation,
+                        start: "", // Clear start for second leg row
+                        event: d.event,
+                        end: d.end,
+                        status: d.status,
+                        resultText: d.end_distance ? `귀가: ${d.end_distance}` : (d.status === 'success' ? '귀가 완료' : '')
+                    });
+                } else {
+                    // Single leg: just use the data as is
+                    flattened.push({
+                        no: d.no,
+                        name: d.name,
+                        affiliation: d.affiliation,
+                        start: d.start,
+                        event: d.event,
+                        end: d.end,
+                        status: d.status,
+                        resultText: d.resultText || ""
+                    });
+                }
+            });
+
+            // Convert to CSV with BOM for Excel
+            const headers = ["No", "이름", "소속", "출발지", "행사지", "도착지", "상태", "결과"];
+            let csvContent = "\uFEFF"; // UTF-8 BOM
+            csvContent += headers.join(",") + "\n";
+
+            flattened.forEach(d => {
+                const row = [
+                    d.no,
+                    `"${d.name || ''}"`,
+                    `"${d.affiliation || ''}"`,
+                    `"${d.start || ''}"`,
+                    `"${d.event || ''}"`,
+                    `"${d.end || ''}"`,
+                    d.status,
+                    `"${d.resultText || ''}"`
+                ];
+                csvContent += row.join(",") + "\n";
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.setAttribute("href", url);
+            link.setAttribute("download", "extracted_data.csv");
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        async function downloadAllImages() {
+            const allData = table.getData().filter(d => d.status === 'success');
+            if (allData.length === 0) {
+                return alert('다운로드할 성공한 이미지가 없습니다.');
+            }
+
+            const zip = new JSZip();
+            const imgFolder = zip.folder("captured_images");
+            addLog(`📦 이미지 압축 시작 (${allData.length}개 행)...`);
+
+            // Use simple loop to avoid overloading browser with too many concurrent fetches
+            for (const d of allData) {
+                const safeNo = d.no || d.id || '0';
+                const baseName = `${safeNo}_${d.name || ''}_${d.affiliation || ''}`.replace(/[/\\?%*:|"<>]/g, '-');
+
+                // 1. 출발편 이미지
+                if (d.images && d.images.start) {
+                    try {
+                        const res = await fetch(d.images.start);
+                        const blob = await res.blob();
+                        const fileName = `${baseName}_출발편.png`;
+                        imgFolder.file(fileName, blob);
+                    } catch (e) {
+                        console.error('이미지 가져오기 실패:', d.images.start, e);
+                    }
+                }
+
+                // 2. 귀가편 이미지
+                if (d.images && d.images.end) {
+                    try {
+                        const res = await fetch(d.images.end);
+                        const blob = await res.blob();
+                        const fileName = `${baseName}_귀가편.png`;
+                        imgFolder.file(fileName, blob);
+                    } catch (e) {
+                        console.error('이미지 가져오기 실패:', d.images.end, e);
+                    }
+                }
+            }
+
+            addLog('📦 압축 파일 생성 중...');
+            zip.generateAsync({ type: "blob" }).then(function (content) {
+                saveAs(content, `naver_map_captures_${new Date().getTime()}.zip`);
+                addLog('✅ 이미지 일괄 저장 완료!');
+            });
+        }
+
+        function loadCSV(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                const rows = e.target.result.split('\n').slice(1);
+                const newData = rows.map((r, i) => {
+                    const c = r.split(',');
+                    // Expected CSV: No, 이름, 소속, 출발지, 행사지, 도착지
+                    if (c.length < 4) return null; // 최소 출발지까지는 있어야 함
+                    return {
+                        id: i + 1,
+                        no: c[0]?.trim() || (i + 1), // no가 없으면 순번 사용
+                        name: c[1]?.trim(),
+                        affiliation: c[2]?.trim(),
+                        start: c[3]?.trim(),
+                        event: c[4]?.trim() || '',
+                        end: c[5]?.trim() || '',
+                        status: 'ready'
+                    };
+                }).filter(d => d && d.start);
+                table.setData(newData);
+                addLog(`${newData.length}개 데이터 로드 완료.`);
+                input.value = ''; // Reset
+            };
+            reader.readAsText(file);
+        }
+
+        // --- Batch Execution ---
+        async function runBatch() {
+            const rows = table.getRows();
+            const validRows = rows.filter(r => {
+                const d = r.getData();
+                return d.start && d.event && d.status !== 'success';
+            });
+
+            if (validRows.length === 0) {
+                const allDone = rows.every(r => r.getData().status === 'success');
+                if (allDone) return alert('모든 작업이 이미 완료되었습니다.');
+                return alert('실행할 데이터가 없거나 이미 완료되었습니다.');
+            }
+
+            const btn = document.getElementById('btnRun');
+            const vpWidth = document.getElementById('vpWidth').value || 900;
+            const vpHeight = document.getElementById('vpHeight').value || 500;
+            const concurrencyLimit = parseInt(document.getElementById('concurrencyLimit').value) || 3;
+
+            btn.disabled = true;
+            btn.innerHTML = `<i class="ph ph-spinner ph-spin"></i> 중단 필요 시 새로고침`;
+
+            const batchId = new Date().toISOString().replace(/[:.]/g, '-').split('T')[0] + '_' + new Date().toTimeString().split(' ')[0].replace(/:/g, '-');
+
+            addLog(`📂 작업 폴더: output/${batchId} | 병렬도: ${concurrencyLimit}`);
+            addLog(`총 ${validRows.length}개 행 작업 시작 (병렬 처리 중...)`);
+
+            let completedRows = 0;
+            updateProgress(0, validRows.length);
+
+            // Parallel Worker Pool Logic
+            const queue = [...validRows];
+            const workers = [];
+
+            async function worker() {
+                while (queue.length > 0) {
+                    const row = queue.shift();
+                    const data = row.getData();
+
+                    // row.update ensures status is immediately visible
+                    row.update({ status: 'running' });
+
+                    let currentImages = { start: null, end: null };
+                    let successCount = 0;
+                    let failCount = 0;
+                    let logs = [];
+
+                    // 1. 출발편
+                    const safeNo = data.no || data.id || '0';
+                    const filename1 = `${safeNo}_${data.name}_${data.affiliation}_출발편_${data.start}_${data.event}`;
+
+                    const task1 = await processSingleRoute(data.start, data.event, filename1, batchId, vpWidth, vpHeight);
+                    if (task1.success && task1.distance && task1.distance !== 'Unknown') {
+                        successCount++;
+                        logs.push(`출발: ${task1.distance}`);
+                        currentImages.start = task1.imageUrl;
+                        row.update({ start_distance: task1.distance });
+                    } else {
+                        failCount++;
+                        logs.push(`출발: ${task1.distance === 'Unknown' ? '거리 불명' : '실패'}`);
+                    }
+
+                    // 2. 귀가편
+                    if (data.end && data.end.trim() !== '') {
+                        const filename2 = `${safeNo}_${data.name}_${data.affiliation}_귀가편_${data.event}_${data.end}`;
+                        const task2 = await processSingleRoute(data.event, data.end, filename2, batchId, vpWidth, vpHeight);
+
+                        if (task2.success && task2.distance && task2.distance !== 'Unknown') {
+                            successCount++;
+                            logs.push(`귀가: ${task2.distance}`);
+                            currentImages.end = task2.imageUrl;
+                            row.update({ end_distance: task2.distance });
+                        } else {
+                            failCount++;
+                            logs.push(`귀가: ${task2.distance === 'Unknown' ? '거리 불명' : '실패'}`);
+                        }
+                    }
+
+                    const finalStatus = failCount === 0 ? 'success' : 'error';
+                    row.update({
+                        status: finalStatus,
+                        resultText: logs.join(' / '),
+                        imageUrl: currentImages.start || currentImages.end,
+                        images: currentImages
+                    });
+
+                    completedRows++;
+                    updateProgress(completedRows, validRows.length);
+                }
+            }
+
+            // Start workers up to limit
+            for (let i = 0; i < Math.min(concurrencyLimit, validRows.length); i++) {
+                workers.push(worker());
+            }
+
+            await Promise.all(workers);
+
+            btn.disabled = false;
+            btn.innerHTML = `<i class="ph ph-play-circle"></i> 실행 시작`;
+            addLog('🎉 모든 병렬 작업이 완료되었습니다.');
+        }
+
+        async function processSingleRoute(start, end, filename, batchId, width, height) {
+            addLog(`🚀 [요청] ${start} -> ${end}`);
+
+            try {
+                const res = await fetch('/direct', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        start, end, width, height, batchId, filename
+                    })
+                });
+                const result = await res.json();
+
+                if (res.ok) {
+                    addLog(`  ✅ 저장: ${filename}.png (${result.distance})`);
+                    return { success: true, distance: result.distance, imageUrl: result.imageUrl };
+                } else {
+                    throw new Error(result.message);
+                }
+            } catch (e) {
+                addLog(`  ❌ 실패: ${e.message}`);
+                return { success: false, error: e.message };
+            }
+        }
+    </script>
+
+</body>
+
+</html>

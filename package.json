@@ -1,0 +1,43 @@
+{
+  "name": "expense-evidence-automation",
+  "version": "1.0.0",
+  "description": "비용 정산 증빙 자동화 (Naver Map Suite)",
+  "author": "Antigravity",
+  "main": "main.js",
+  "dependencies": {
+    "axios": "^1.13.4",
+    "csv-parser": "^3.2.0",
+    "express": "^4.22.1",
+    "multer": "^1.4.5-lts.1",
+    "playwright": "^1.40.0"
+  },
+  "devDependencies": {
+    "electron": "^28.1.0",
+    "electron-builder": "^24.9.1"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "electron": "electron .",
+    "dist": "electron-builder",
+    "batch": "node batch_process.js"
+  },
+  "build": {
+    "appId": "com.expense.evidence.automation",
+    "productName": "비용정산증빙자동화",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "portable",
+      "icon": "icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.utilities"
+    },
+    "files": [
+      "**/*",
+      "!dist"
+    ]
+  }
+}
